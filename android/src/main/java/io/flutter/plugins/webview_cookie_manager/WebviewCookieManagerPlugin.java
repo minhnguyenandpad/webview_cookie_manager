@@ -20,30 +20,46 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 /**
  * WebviewCookieManagerPlugin
  */
 public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHandler {
-    /// The MethodChannel that will the communication between Flutter and native Android
-    ///
-    /// This local reference serves to register the plugin with the Flutter Engine and unregister it
-    /// when the Flutter Engine is detached from the Activity
     private MethodChannel channel;
 
-    // This static function is optional and equivalent to onAttachedToEngine. It supports the old
-    // pre-Flutter-1.12 Android projects. You are encouraged to continue supporting
-    // plugin registration via this function while apps migrate to use the new Android APIs
-    // post-flutter-1.12 via https://flutter.dev/go/android-project-migration.
-    //
-    // It is encouraged to share logic between onAttachedToEngine and registerWith to keep
-    // them functionally equivalent. Only one of onAttachedToEngine or registerWith will be called
-    // depending on the user's project. onAttachedToEngine or registerWith must both be defined
-    // in the same class.
-    public static void registerWith(Registrar registrar) {
-        final MethodChannel channel = new MethodChannel(registrar.messenger(), "webview_cookie_manager");
-        channel.setMethodCallHandler(new WebviewCookieManagerPlugin());
+    @Override
+    public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
+        // Initialize the MethodChannel for communication between Flutter and native Android
+        channel = new MethodChannel(flutterPluginBinding.getBinaryMessenger(), "webview_cookie_manager");
+        channel.setMethodCallHandler(this);
+    }
+
+    @Override
+    public void onMethodCall(MethodCall methodCall, Result result) {
+        switch (methodCall.method) {
+            case "clearCookies":
+                clearCookies(result);
+                break;
+            case "hasCookies":
+                hasCookies(result);
+                break;
+            case "getCookies":
+                getCookies(methodCall, result);
+                break;
+            case "setCookies":
+                setCookies(methodCall, result);
+                break;
+            default:
+                result.notImplemented();
+        }
+    }
+
+    @Override
+    public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        if (channel != null) {
+            channel.setMethodCallHandler(null);
+            channel = null;
+        }
     }
 
     private static void hasCookies(final Result result) {
@@ -56,13 +72,12 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
         CookieManager cookieManager = CookieManager.getInstance();
         final boolean hasCookies = cookieManager.hasCookies();
         if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            cookieManager.removeAllCookies(
-                    new ValueCallback<Boolean>() {
-                        @Override
-                        public void onReceiveValue(Boolean value) {
-                            result.success(hasCookies);
-                        }
-                    });
+            cookieManager.removeAllCookies(new ValueCallback<Boolean>() {
+                @Override
+                public void onReceiveValue(Boolean value) {
+                    result.success(hasCookies);
+                }
+            });
             cookieManager.flush();
         } else {
             cookieManager.removeAllCookie();
@@ -81,14 +96,13 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
         }
 
         final Map<String, String> arguments = methodCall.arguments();
-
         CookieManager cookieManager = CookieManager.getInstance();
 
         final String url = arguments.get("url");
         final String allCookiesString = url == null ? null : cookieManager.getCookie(url);
         final ArrayList<String> individualCookieStrings = allCookiesString == null ?
-                new ArrayList<String>()
-                : new ArrayList<String>(Arrays.asList(allCookiesString.split(";")));
+                new ArrayList<>()
+                : new ArrayList<>(Arrays.asList(allCookiesString.split(";")));
 
         ArrayList<Map<String, Object>> serializedCookies = new ArrayList<>();
         for (String cookieString : individualCookieStrings) {
@@ -102,7 +116,7 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
                 }
                 serializedCookies.add(cookieToMap(cookie));
             } catch (IllegalArgumentException e) {
-                // Cookie is invalid. Ignoring.
+                // Ignore invalid cookies
             }
         }
 
@@ -120,7 +134,6 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
         }
 
         final List<Map<String, Object>> serializedCookies = methodCall.arguments();
-
         CookieManager cookieManager = CookieManager.getInstance();
 
         for (Map<String, Object> cookieMap : serializedCookies) {
@@ -150,7 +163,6 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
         resultMap.put("secure", cookie.getSecure());
 
         if (!cookie.hasExpired() && !cookie.getDiscard() && cookie.getMaxAge() > 0) {
-            // translate `max-age` to `expires` by computing future expiration date
             long expires = (System.currentTimeMillis() / 1000) + cookie.getMaxAge();
             resultMap.put("expires", expires);
         }
@@ -160,37 +172,5 @@ public class WebviewCookieManagerPlugin implements FlutterPlugin, MethodCallHand
         }
 
         return resultMap;
-    }
-
-    @Override
-    public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
-        channel = new MethodChannel(flutterPluginBinding.getBinaryMessenger(), "webview_cookie_manager");
-        channel.setMethodCallHandler(this);
-    }
-
-    @Override
-    public void onMethodCall(MethodCall methodCall, Result result) {
-        switch (methodCall.method) {
-            case "clearCookies":
-                clearCookies(result);
-                break;
-            case "hasCookies":
-                hasCookies(result);
-                break;
-            case "getCookies":
-                getCookies(methodCall, result);
-                break;
-            case "setCookies":
-                setCookies(methodCall, result);
-                break;
-            default:
-                result.notImplemented();
-        }
-    }
-
-    @Override
-    public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
-        channel.setMethodCallHandler(null);
-        channel = null;
     }
 }
